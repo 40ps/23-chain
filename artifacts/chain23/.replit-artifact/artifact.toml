@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "23-Chain: BSV Turing Machine"
+version = "1.0.0"
+id = "artifacts/chain23"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22035
+
+[services.development]
+run = "pnpm --filter @workspace/chain23 run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/chain23", "run", "build" ]
+publicDir = "artifacts/chain23/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22035"
+BASE_PATH = "/"
