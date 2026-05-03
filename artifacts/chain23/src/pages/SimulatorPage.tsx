@@ -500,7 +500,9 @@ export default function SimulatorPage() {
         <span className="w-px h-3 bg-border" />
         <span>TXID = SHA256(encodedState)</span>
         <span className="w-px h-3 bg-border" />
-        <span>Live Mode: TODO (Chronicle SDK)</span>
+        <span>OP_CAT available since Genesis 2020</span>
+        <span className="w-px h-3 bg-border" />
+        <span>Live Mode: pending SIGHASH_OTDA (0x20) or OP_PUSH_TX impl</span>
         <span className="w-px h-3 bg-border" />
         <a href="/docs/script-design.md" target="_blank" className="hover:text-muted-foreground transition-colors underline underline-offset-2">
           Script Design Docs

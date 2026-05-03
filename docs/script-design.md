@@ -1,14 +1,25 @@
 # 23-Chain: Bitcoin Script Design Document
 
 **Project:** 23-Chain — Wolfram (2,3) Turing Machine as BSV Transaction Chain  
-**Version:** 1.0  
-**Status:** Simulation Mode active. Live Mode pending Chronicle SDK support.
+**Version:** 1.1  
+**Status:** Simulation Mode active. Live Mode pending SIGHASH_OTDA SDK support (OTDA path) or OP_PUSH_TX implementation (Genesis-compatible path).
 
 ---
 
 ## Overview
 
 This document describes the Bitcoin Script architecture for encoding Turing Machine state transitions as BSV transactions. Each computational step of the Wolfram (2,3) machine corresponds to one BSV transaction, making the chain of transactions a complete, verifiable execution trace of a Turing computation.
+
+---
+
+## BSV Protocol Upgrade Timeline (relevant to this project)
+
+| Upgrade | Date | What it enabled |
+|---------|------|-----------------|
+| **Genesis** | Feb 2020 | Restored `OP_CAT`, `OP_SPLIT`, `OP_NUM2BIN`, `OP_BIN2NUM`, `OP_SUBSTR`, `OP_LEFT`, `OP_RIGHT`. Lifted script size and stack depth limits. |
+| **Chronicle** | 2024 | Introduced OTDA (Output Template Derivation Algorithm) and `SIGHASH_OTDA = 0x20`. Does NOT re-introduce opcodes that Genesis already restored. |
+
+**Important:** `OP_CAT`, `OP_SPLIT`, and all related data-manipulation opcodes are available on BSV **since Genesis (2020)**. They are not Chronicle-specific. Chronicle's unique contribution is the OTDA covenant mechanism and its associated sighash flag.
 
 ---
 
@@ -61,22 +72,41 @@ TXID = SHA256(encodedState)
 
 ---
 
+## Transaction Structure
+
+Each step produces two outputs:
+
+```
+OUTPUT[0]:
+  scriptPubKey: OP_RETURN <hexEncodedState>
+  value: 0 satoshis (unspendable, prunable from UTXO set)
+
+OUTPUT[1]:
+  scriptPubKey: OP_DUP OP_HASH160 <nextStepPubKeyHash> OP_EQUALVERIFY OP_CHECKSIG
+  value: (previous output value) - (miner fee) satoshis
+```
+
+This structure works on vanilla BSV (pre-Genesis, Genesis, and Chronicle). The `OP_RETURN` output carries the state commitment. The P2PKH output funds the next step.
+
+---
+
 ## Locking Script (scriptPubKey)
 
-The locking script for each step output encodes a constraint: the next transaction must provide a valid Turing transition.
+### Level 1 — State Logging (works on all BSV, no special opcodes)
 
-### Conceptual Structure (post-Chronicle)
-
-```
-OP_RETURN <hexEncodedState>        -- Output 0: state commitment
-OP_DUP OP_HASH160 <pubKeyHash>    -- Output 1: P2PKH change (funding continuation)
-```
-
-For a stateful covenant approach (requiring Chronicle Script restoration):
+Simple P2PKH with an `OP_RETURN` commitment. No on-chain verification of transition correctness — correctness is verified off-chain by replaying the OP_RETURN chain.
 
 ```
--- Locking script (conceptual)
-OP_PUSHDATA <expectedNextStateHash>
+OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG
+```
+
+### Level 2 — State Commitment Verification (requires Genesis 2020+)
+
+The locking script commits to the hash of the next valid state. The spender must provide the next encoded state that satisfies the Turing transition rules.
+
+```
+-- Locking script
+OP_PUSHDATA <SHA256(validNextEncodedState)>
 OP_SWAP
 OP_SHA256
 OP_EQUAL
@@ -85,46 +115,78 @@ OP_DUP OP_HASH160 <pubKeyHash>
 OP_EQUALVERIFY OP_CHECKSIG
 ```
 
-This would require:
-1. **Chronicle-restored opcodes**: `OP_CAT`, `OP_SUBSTR`, `OP_LEFT`, `OP_RIGHT`, `OP_SPLIT`, `OP_NUM2BIN`, `OP_BIN2NUM` for in-script state manipulation.
-2. **UTXO introspection** (if using OTDA): Access to the spending transaction's outputs within the script.
+This requires `OP_SHA256` (always available) and `OP_SWAP`/`OP_VERIFY` (always available). No Genesis opcodes needed for this basic form — but the next-state hash must be pre-computed off-chain and embedded at script creation time.
+
+### Level 3 — Full Covenant with OP_PUSH_TX (requires Genesis 2020+)
+
+Using the transaction preimage technique (OP_PUSH_TX), the locking script can inspect the spending transaction's outputs at execution time. The prover provides the full transaction preimage; the script verifies it matches the sighash commitment, then parses the outputs using `OP_SPLIT`/`OP_CAT` to enforce the next state.
+
+```
+-- Conceptual OP_PUSH_TX covenant (Genesis-compatible)
+<serialized spending tx preimage pushed by prover>
+OP_DUP
+OP_SHA256 OP_SHA256          -- double-SHA256
+<expected sighash>
+OP_EQUALVERIFY               -- verify preimage is authentic
+-- now parse output[0] of the spending tx using OP_SPLIT/OP_CAT
+-- verify it contains OP_RETURN <validNextState>
+-- apply Wolfram (2,3) transition table in script
+```
+
+`OP_CAT` and `OP_SPLIT` are available since **Genesis 2020** — no Chronicle required for this approach.
+
+### Level 4 — OTDA Covenant (requires Chronicle SIGHASH_OTDA)
+
+The cleanest covenant form. The locking script uses `SIGHASH_OTDA = 0x20` so the signature commits to the output template rather than specific output scripts. The script then enforces that the spending transaction's outputs include a valid next state.
+
+This is the only part that requires Chronicle. It is the most elegant implementation but not strictly necessary — Level 3 (OP_PUSH_TX) achieves equivalent enforcement with Genesis opcodes at the cost of more complex script construction.
 
 ---
 
 ## Unlocking Script (scriptSig)
 
 ```
-<signature>                    -- ECDSA/Schnorr signature
+<signature>                    -- ECDSA signature (SIGHASH_ALL or SIGHASH_OTDA)
 <pubKey>                       -- Public key
 <encodedNextState>             -- The next Turing state (verified against locking script)
+```
+
+For Level 3 (OP_PUSH_TX):
+```
+<signature>
+<pubKey>
+<encodedNextState>
+<serialized spending tx preimage>   -- additional witness data for covenant enforcement
 ```
 
 ---
 
 ## Used Opcodes
 
-| Opcode | Purpose | Chronicle Required? |
-|--------|---------|---------------------|
-| `OP_RETURN` | State commitment | No (available in all versions) |
-| `OP_DUP` | Stack manipulation | No |
-| `OP_HASH160` | P2PKH address derivation | No |
-| `OP_EQUALVERIFY` | Equality check + verify | No |
-| `OP_CHECKSIG` | Signature verification | No |
-| `OP_SHA256` | State hash commitment | No |
-| `OP_CAT` | Binary concatenation for state assembly | **Yes — Chronicle** |
-| `OP_SPLIT` | Parsing tape fields from state | **Yes — Chronicle** |
-| `OP_NUM2BIN` | Integer → byte encoding | **Yes — Chronicle** |
-| `OP_BIN2NUM` | Byte → integer decoding | **Yes — Chronicle** |
+| Opcode | Purpose | Available Since |
+|--------|---------|-----------------|
+| `OP_RETURN` | State commitment output | Always (Satoshi) |
+| `OP_DUP` | Stack manipulation | Always |
+| `OP_HASH160` | P2PKH address derivation | Always |
+| `OP_EQUALVERIFY` | Equality check + verify | Always |
+| `OP_CHECKSIG` | Signature verification | Always |
+| `OP_SHA256` | State hash commitment | Always |
+| `OP_SWAP` | Stack reordering | Always |
+| `OP_VERIFY` | Assert top of stack is true | Always |
+| `OP_CAT` | Binary concatenation for state assembly | **Genesis 2020** |
+| `OP_SPLIT` | Parsing tape fields from state string | **Genesis 2020** |
+| `OP_NUM2BIN` | Integer → byte encoding | **Genesis 2020** |
+| `OP_BIN2NUM` | Byte → integer decoding | **Genesis 2020** |
+| `OP_SUBSTR` | Substring extraction | **Genesis 2020** |
+| `SIGHASH_OTDA (0x20)` | Output template sighash for OTDA covenants | **Chronicle only** |
 
 ---
 
 ## State Transition Validation
 
-### Conceptual Verification
-
 The locking script can encode the Wolfram (2,3) transition table directly in Script. For each step, the unlocking script provides the new state, and the locking script verifies it follows the transition rules.
 
-**Transition table as Script conditions:**
+**Transition table as Script conditions (Genesis-compatible):**
 
 ```
 -- State 0, Symbol 0 → Write 1, Move Right, New State 1
@@ -134,57 +196,34 @@ OP_ENDIF OP_ENDIF
 ...
 ```
 
-This is feasible in BSV post-Chronicle due to:
-- Lifted opcode limits (script size, stack depth)
-- `OP_CAT`/`OP_SPLIT` for tape string manipulation
-- Arbitrary data push support
+This is feasible in BSV since **Genesis 2020** because:
+- `OP_CAT`/`OP_SPLIT` for tape string parsing and assembly are available
+- No opcode count limits (lifted by Genesis)
+- Lifted script size limits (lifted by Genesis)
+- Stack items can be arbitrary length (lifted by Genesis)
+
+Chronicle's OTDA makes this *cleaner* (no need to push the full tx preimage) but is not the only path.
 
 ---
 
-## OP_RETURN State Encoding
+## What is the Only Chronicle-Specific Obstacle?
 
-```
-OUTPUT[0]:
-  scriptPubKey: OP_RETURN <hexEncodedState>
-  value: 0 satoshis (unspendable)
+**Yes — `SIGHASH_OTDA = 0x20` is the only Chronicle-specific blocker for the OTDA covenant path.**
 
-OUTPUT[1]:
-  scriptPubKey: OP_DUP OP_HASH160 <nextStepPubKeyHash> OP_EQUALVERIFY OP_CHECKSIG
-  value: (previous output value) - (miner fee) satoshis
-```
+For the OP_PUSH_TX covenant path (Level 3 above), **no Chronicle features are needed at all**. The Genesis opcodes (`OP_CAT`, `OP_SPLIT`, `OP_NUM2BIN`) restored in February 2020 are fully sufficient to implement on-chain state transition verification. The implementation is more verbose than OTDA but produces equivalent enforcement guarantees.
 
-The `OP_RETURN` output is unspendable (prunable from UTXO set) and carries the full Turing state as a commitment. Verifiers can reconstruct the entire computation from the chain of `OP_RETURN` outputs.
+### Summary of paths to Live Mode
 
----
-
-## Chronicle-Related Assumptions
-
-### What is Chronicle?
-
-The **BSV Chronicle** upgrade (2024) restores Bitcoin's original Script semantics as documented in Satoshi Nakamoto's code comments and early Bitcoin forums. Key restorations:
-
-- `OP_CAT` — concatenate two stack items
-- `OP_SUBSTR` — extract substring
-- `OP_LEFT`, `OP_RIGHT` — string slicing
-- `OP_SPLIT` — split byte array at position
-- `OP_NUM2BIN`, `OP_BIN2NUM` — numeric/binary conversions
-- Lifted script size limit (previously 10KB in BTC, now configurable)
-- Lifted stack item size limit (previously 520 bytes in BTC)
-- Removal of per-script opcode count limits
-
-### OTDA (Output Template Derivation Algorithm)
-
-OTDA is a Chronicle-era covenant mechanism that allows a locking script to:
-1. Inspect the spending transaction's outputs at Script execution time.
-2. Enforce that the spending transaction commits to a specific output template.
-
-**SIGHASH Flag:** Chronicle introduces `SIGHASH_OTDA = 0x20`. This flag causes the signature to commit to the output template rather than specific output scripts, enabling flexible covenant chains.
-
-Without `SIGHASH_OTDA` support in the SDK, the covenant chain cannot be implemented safely.
+| Approach | Protocol required | On-chain verification | Complexity |
+|----------|------------------|-----------------------|------------|
+| P2PKH + OP_RETURN (logging only) | Pre-Genesis | Off-chain only | Low |
+| State hash commitment | Pre-Genesis | Hash match only | Low |
+| OP_PUSH_TX covenant | Genesis 2020 | Full Turing rule | High |
+| OTDA covenant | Chronicle | Full Turing rule | Medium |
 
 ---
 
-## Why Live Mode is Not Implemented
+## Why Live Mode is Not Yet Implemented
 
 ### SDK Status (as of 2025-05)
 
@@ -193,18 +232,39 @@ Without `SIGHASH_OTDA` support in the SDK, the covenant chain cannot be implemen
 | `@bsv/sdk` basic transaction construction | ✅ Available |
 | `@bsv/sdk` P2PKH signing | ✅ Available |
 | `@bsv/sdk` OP_RETURN output | ✅ Available |
-| Chronicle opcode support (`OP_CAT`, etc.) | ⚠️ Partially available |
+| `OP_CAT`, `OP_SPLIT`, `OP_NUM2BIN` (Genesis) | ✅ Available on-chain since 2020 |
+| Custom script construction via `@bsv/sdk` | ✅ Available (manual opcode assembly) |
 | OTDA `SIGHASH = 0x20` flag | ❌ Not in current SDK |
-| Chronicle covenant script templates | ❌ Not available |
-| ARC broadcasting endpoint | ✅ Available (but requires funded UTXO) |
+| OTDA covenant script templates | ❌ Not available |
+| ARC broadcasting endpoint | ✅ Available (requires funded UTXO) |
 
 ### Decision
 
-Per the project's **Hard Constraint**: 
+The current blocker for the OTDA path is solely `SIGHASH_OTDA = 0x20` not being exposed by the stable `@bsv/sdk`. For the OP_PUSH_TX path, all required opcodes are available on-chain — the remaining work is SDK-level script construction and a funded wallet integration. Neither path requires waiting for Chronicle SDK support at the opcode level.
 
-> "Before implementing Live Mode, verify that the selected BSV SDK supports the required post-Chronicle Script features. If support is incomplete, build a correct simulation and expose the Script template as documentation instead of broadcasting invalid transactions."
+Live Mode is intentionally not implemented in this build to avoid broadcasting transactions without complete covenant verification. The simulation correctly models all transaction chain semantics.
 
-Live Mode is therefore intentionally **not implemented**. The simulation correctly models the transaction chain semantics, and this document provides the full Script specification for future implementation when the Chronicle SDK matures.
+---
+
+## Chronicle-Related Assumptions
+
+### What is Chronicle?
+
+**BSV Chronicle** (2024) introduced:
+- **OTDA** (Output Template Derivation Algorithm) — allows a locking script to enforce the structure of the spending transaction's outputs
+- **`SIGHASH_OTDA = 0x20`** — causes the signature to commit to the output template, enabling flexible covenant chains without pushing the full tx preimage
+
+Chronicle does **not** re-introduce `OP_CAT`, `OP_SPLIT`, or related opcodes — those were already restored by the Genesis upgrade in February 2020.
+
+### Genesis (February 2020)
+
+The Genesis upgrade restored:
+- `OP_CAT`, `OP_SUBSTR`, `OP_LEFT`, `OP_RIGHT`, `OP_SPLIT`, `OP_NUM2BIN`, `OP_BIN2NUM`
+- Lifted the 10KB script size limit
+- Lifted the 520-byte stack item size limit
+- Removed the per-script opcode count limit
+
+These are all available today on mainnet BSV without any Chronicle dependency.
 
 ---
 
@@ -218,11 +278,11 @@ Live Mode is therefore intentionally **not implemented**. The simulation correct
 
 ### Future Packages (for Live Mode)
 
-| Package | Purpose |
-|---------|---------|
-| `@bsv/sdk` (Chronicle version) | Chronicle opcodes, OTDA SIGHASH |
-| `@bsv/wallet-toolbox` | BRC-100 wallet interaction |
-| ARC API | Official BSV broadcasting infrastructure |
+| Package | Purpose | Required for |
+|---------|---------|--------------|
+| `@bsv/sdk` (with OTDA support) | SIGHASH_OTDA signing | OTDA covenant path |
+| `@bsv/wallet-toolbox` | BRC-100 wallet interaction | Both live paths |
+| ARC API | Official BSV broadcasting | Both live paths |
 
 ---
 
@@ -231,7 +291,7 @@ Live Mode is therefore intentionally **not implemented**. The simulation correct
 - **No private keys in browser**: The `WalletAdapter` interface delegates signing to the wallet layer.
 - **No hardcoded seeds/WIF/mnemonics**: Simulation mode requires no keys whatsoever.
 - **Live Mode requires explicit user confirmation**: Any real broadcast must show the user the full transaction details before submission.
-- **UTXO management**: In a real implementation, each step consumes one UTXO and creates one new UTXO (the continuation output) plus one `OP_RETURN` (prunable). This keeps UTXO set growth minimal.
+- **UTXO management**: Each step consumes one UTXO (continuation input) and creates one new UTXO (continuation output) plus one `OP_RETURN` (prunable). UTXO set growth is O(1) per run — always exactly one live continuation UTXO.
 
 ---
 
@@ -240,20 +300,25 @@ Live Mode is therefore intentionally **not implemented**. The simulation correct
 ```markdown
 ## BSV Stack Compliance
 
-This project targets the post-Chronicle BSV protocol.
+This project targets post-Genesis BSV (February 2020+). Chronicle is referenced
+only for the OTDA covenant path; the OP_PUSH_TX covenant path requires only Genesis.
 
 ### Packages Used
 
-- **@bsv/sdk** (official BSV Association SDK): Used for transaction construction, 
-  script templates, and signing. This is the primary official SDK for BSV development.
-  
-- **WhatsOnChain API**: Used for transaction lookup and as a reference for broadcasting.
-  WhatsOnChain is part of the BSV ecosystem and provides a publicly documented REST API.
+- **@bsv/sdk** (official BSV Association SDK): Used for transaction construction,
+  script templates, and signing.
+
+- **WhatsOnChain API**: Used for transaction lookup. Part of the BSV ecosystem.
+
+### Opcode Availability
+
+`OP_CAT`, `OP_SPLIT`, `OP_NUM2BIN`, `OP_BIN2NUM` and all data-manipulation opcodes
+are available on BSV mainnet since the Genesis upgrade (February 2020).
+They are not Chronicle-specific.
 
 ### Live Mode Status
 
-Live broadcasting requires Chronicle-specific features (`SIGHASH_OTDA = 0x20`) 
-that are not yet available in the stable @bsv/sdk release. Simulation Mode 
-provides full computational correctness. See `/docs/script-design.md` for 
-the complete Script specification.
+The only Chronicle-specific dependency is `SIGHASH_OTDA = 0x20`, required for the
+OTDA covenant path. An alternative implementation using the OP_PUSH_TX technique
+(Genesis-compatible) requires no Chronicle features. See `/docs/script-design.md`.
 ```
