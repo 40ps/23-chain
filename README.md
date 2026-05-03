@@ -28,6 +28,16 @@ It demonstrates how computation can be serialized into transaction chains, and h
 
 ## 🔢 Wolfram (2,3) Transition Rules
 
+
+| State | Symbol | New State | New Symbol | Direction |
+|-------|--------|-----------|------------|-----------|
+| 0 | 0 | 1 | 1 | Right |
+| 0 | 1 | 1 | 2 | Left |
+| 0 | 2 | 0 | 1 | Left |
+| 1 | 0 | 1 | 2 | Right |
+| 1 | 1 | 0 | 2 | Right |
+| 1 | 2 | 0 | 0 | Left |
+
 ```javascript
 const wolfram23Lookup = {
   0: {
@@ -41,6 +51,7 @@ const wolfram23Lookup = {
     2: [0, 0, -1]
   }
 };
+```
 
 
 ---
