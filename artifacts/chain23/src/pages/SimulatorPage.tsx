@@ -47,7 +47,8 @@ export default function SimulatorPage() {
   const cells = tapeToArray(state.tape);
   const tapeScrollRef = useRef<HTMLDivElement>(null);
   const headCellRef = useRef<HTMLDivElement>(null);
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+  const [autoScrollLog, setAutoScrollLog] = useState(true);
 
   const [transitionOpen, setTransitionOpen] = useState(false);
   const [customTapeStr, setCustomTapeStr] = useState("0000001101000000");
@@ -78,10 +79,12 @@ export default function SimulatorPage() {
     container.scrollLeft += offset;
   }, [state.headPosition, cells.length]);
 
-  // Auto-scroll log to bottom
+  // Auto-scroll log container — scrolls only the log div, never the page
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [state.transactions.length]);
+    if (!autoScrollLog) return;
+    const el = logContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [state.transactions.length, autoScrollLog]);
 
   const handleCustomLoad = useCallback(() => {
     const tapeErr = validateTapeString(customTapeStr);
@@ -602,7 +605,7 @@ export default function SimulatorPage() {
         </div>
 
         {/* ── RIGHT COLUMN: TX LOG ── */}
-        <div className="w-full lg:w-96 xl:w-[440px] border-t lg:border-t-0 lg:border-l border-border flex flex-col min-h-0 max-h-[60vh] lg:max-h-none">
+        <div className="w-full lg:w-96 xl:w-[440px] border-t lg:border-t-0 lg:border-l border-border flex flex-col">
           <div className="px-4 py-3 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Hash className="w-3.5 h-3.5 text-muted-foreground" />
@@ -615,12 +618,30 @@ export default function SimulatorPage() {
                 </span>
               )}
             </div>
-            <span className="text-xs font-mono text-primary">
-              {state.transactions.length} tx
-            </span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setAutoScrollLog((v) => !v)}
+                title={autoScrollLog ? "Auto-scroll on — click to disable" : "Auto-scroll off — click to enable"}
+                className={[
+                  "text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors",
+                  autoScrollLog
+                    ? "bg-primary/10 border-primary/30 text-primary"
+                    : "bg-background border-border text-muted-foreground",
+                ].join(" ")}
+              >
+                {autoScrollLog ? "↓ auto" : "↓ off"}
+              </button>
+              <span className="text-xs font-mono text-primary">
+                {state.transactions.length} tx
+              </span>
+            </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto min-h-0">
+          <div
+            ref={logContainerRef}
+            className="overflow-y-auto"
+            style={{ maxHeight: "400px" }}
+          >
             {state.transactions.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
                 <Activity className="w-8 h-8 mb-3 opacity-20" />
@@ -661,7 +682,6 @@ export default function SimulatorPage() {
                     </div>
                   );
                 })}
-                <div ref={logEndRef} />
               </div>
             )}
           </div>
