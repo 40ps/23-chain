@@ -217,6 +217,10 @@ importers:
         version: 3.1.0
 
   artifacts/chain23:
+    dependencies:
+      '@bsv/sdk':
+        specifier: ^2.0.14
+        version: 2.0.14
     devDependencies:
       '@hookform/resolvers':
         specifier: ^3.10.0
@@ -731,6 +735,9 @@ packages:
   '@babel/types@7.29.0':
     resolution: {integrity: sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A==}
     engines: {node: '>=6.9.0'}
+
+  '@bsv/sdk@2.0.14':
+    resolution: {integrity: sha512-iCBaq0HG16tmeneGWOltXhOolqj5m8RJFvw08wmwM9XmY9KdqRWuqMeP33NFolBzX13UJ06KODrZdm60svbprA==}
 
   '@commander-js/extra-typings@14.0.0':
     resolution: {integrity: sha512-hIn0ncNaJRLkZrxBIp5AsW/eXEHNKYQBh0aPdoUqNgD+Io3NIykQqpKFyKcuasZhicGaEZJX/JBSIkZ4e5x8Dg==}
@@ -3282,6 +3289,8 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.27.1
       '@babel/helper-validator-identifier': 7.28.5
+
+  '@bsv/sdk@2.0.14': {}
 
   '@commander-js/extra-typings@14.0.0(commander@14.0.3)':
     dependencies:

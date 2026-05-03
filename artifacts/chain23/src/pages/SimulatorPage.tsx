@@ -2,7 +2,10 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { useTuringMachine } from "@/hooks/useTuringMachine";
 import { tapeToArray } from "@/core/tape";
 import ScriptModeSelector from "@/components/ScriptModeSelector";
+import LiveModePanel from "@/components/LiveModePanel";
+import BroadcastDialog from "@/components/BroadcastDialog";
 import { SCRIPT_MODES } from "@/bsv/scriptModes";
+import { LiveConfig, LiveUTXO, LiveTxPreview } from "@/bsv/liveTx";
 import {
   Play,
   Square,
@@ -16,13 +19,30 @@ import {
   Hash,
   Activity,
   Database,
+  Radio,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 
 const CELL_W = 44;
 
 export default function SimulatorPage() {
-  const { state, step, start, stop, reset, loadDemo, fund, setSpeed, exportCSV, setCustomTape, setScriptMode } =
-    useTuringMachine();
+  const {
+    state,
+    step,
+    start,
+    stop,
+    reset,
+    loadDemo,
+    fund,
+    setSpeed,
+    exportCSV,
+    setCustomTape,
+    setScriptMode,
+    buildLiveStep,
+    commitLiveStep,
+    cancelLiveStep,
+  } = useTuringMachine();
 
   const cells = tapeToArray(state.tape);
   const tapeScrollRef = useRef<HTMLDivElement>(null);
@@ -33,6 +53,18 @@ export default function SimulatorPage() {
   const [customTapeStr, setCustomTapeStr] = useState("0000001101000000");
   const [customHead, setCustomHead] = useState("6");
   const [customStateNum, setCustomStateNum] = useState("0");
+
+  // ── Live Mode state ──────────────────────────────────────────────────────
+  const [liveEnabled, setLiveEnabled] = useState(false);
+  const [liveConfig, setLiveConfig] = useState<LiveConfig | null>(null);
+  const [currentUtxo, setCurrentUtxo] = useState<LiveUTXO | null>(null);
+  const [livePreview, setLivePreview] = useState<LiveTxPreview | null>(null);
+  const [broadcastOpen, setBroadcastOpen] = useState(false);
+  const [liveBuilding, setLiveBuilding] = useState(false);
+  const [liveBuildError, setLiveBuildError] = useState("");
+
+  const isLiveMode =
+    liveEnabled && liveConfig !== null && state.scriptMode === "record-only";
 
   // Auto-scroll tape to keep head in view
   useEffect(() => {
@@ -56,6 +88,65 @@ export default function SimulatorPage() {
     if (isNaN(h) || isNaN(s) || s < 0 || s > 1) return;
     setCustomTape(customTapeStr, h, s);
   }, [customTapeStr, customHead, customStateNum, setCustomTape]);
+
+  // ── Live Step handler ───────────────────────────────────────────────────
+  const handleLiveStep = useCallback(async () => {
+    if (!liveConfig || liveBuilding) return;
+    setLiveBuildError("");
+    setLiveBuilding(true);
+    try {
+      const preview = await buildLiveStep(liveConfig);
+      setLivePreview(preview);
+      setBroadcastOpen(true);
+    } catch (err) {
+      setLiveBuildError(
+        err instanceof Error ? err.message : "Failed to build transaction"
+      );
+    } finally {
+      setLiveBuilding(false);
+    }
+  }, [liveConfig, liveBuilding, buildLiveStep]);
+
+  const handleBroadcastSuccess = useCallback(
+    (txid: string, changeSatoshis: number) => {
+      setBroadcastOpen(false);
+      setLivePreview(null);
+      // Advance the machine state with the real TXID
+      commitLiveStep(txid);
+      // Update the UTXO to the change output for the next step
+      if (livePreview && liveConfig) {
+        const newUtxo: LiveUTXO = {
+          txid,
+          vout: livePreview.changeVout,
+          satoshis: changeSatoshis,
+        };
+        setCurrentUtxo(newUtxo);
+        setLiveConfig({ ...liveConfig, utxo: newUtxo });
+      }
+    },
+    [commitLiveStep, livePreview, liveConfig]
+  );
+
+  const handleBroadcastCancel = useCallback(() => {
+    setBroadcastOpen(false);
+    setLivePreview(null);
+    cancelLiveStep();
+  }, [cancelLiveStep]);
+
+  const handleEnableLive = useCallback((config: LiveConfig) => {
+    setLiveConfig(config);
+    setCurrentUtxo(config.utxo);
+    setLiveEnabled(true);
+    setLiveBuildError("");
+  }, []);
+
+  const handleDisableLive = useCallback(() => {
+    setLiveEnabled(false);
+    setLiveConfig(null);
+    setCurrentUtxo(null);
+    setLiveBuildError("");
+    cancelLiveStep();
+  }, [cancelLiveStep]);
 
   const balanceStr = state.balance.toString();
   const shortTxid = (txid: string) => txid.slice(0, 16) + "…" + txid.slice(-8);
@@ -110,13 +201,25 @@ export default function SimulatorPage() {
             <div className="w-px h-4 bg-border" />
             <div className="flex items-center gap-2">
               <Database className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className="text-muted-foreground text-xs uppercase tracking-widest">Balance</span>
-              <span
-                data-testid="status-balance"
-                className={`font-mono font-bold ${state.outOfFunds ? "text-destructive" : "text-primary"}`}
-              >
-                {balanceStr} sat
-              </span>
+              {isLiveMode ? (
+                <>
+                  <Radio className="w-3 h-3 text-primary animate-pulse" />
+                  <span className="text-muted-foreground text-xs uppercase tracking-widest">UTXO</span>
+                  <span className="font-mono font-bold text-primary">
+                    {currentUtxo ? `${currentUtxo.satoshis.toLocaleString()} sat` : "—"}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-muted-foreground text-xs uppercase tracking-widest">Balance</span>
+                  <span
+                    data-testid="status-balance"
+                    className={`font-mono font-bold ${state.outOfFunds ? "text-destructive" : "text-primary"}`}
+                  >
+                    {balanceStr} sat
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -132,8 +235,9 @@ export default function SimulatorPage() {
           <button
             data-testid="button-start"
             onClick={start}
-            disabled={state.running || state.outOfFunds}
+            disabled={state.running || (isLiveMode ? false : state.outOfFunds) || isLiveMode}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+            title={isLiveMode ? "Auto-run disabled in Live Mode — use Step" : undefined}
           >
             <Play className="w-3.5 h-3.5" />
             Start
@@ -141,12 +245,31 @@ export default function SimulatorPage() {
 
           <button
             data-testid="button-step"
-            onClick={step}
-            disabled={state.running || state.outOfFunds}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium bg-secondary text-secondary-foreground hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed border border-border transition-opacity"
+            onClick={isLiveMode ? handleLiveStep : step}
+            disabled={state.running || (!isLiveMode && state.outOfFunds) || liveBuilding}
+            className={[
+              "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium border transition-opacity",
+              isLiveMode
+                ? "bg-primary/10 border-primary/40 text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                : "bg-secondary text-secondary-foreground hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed border-border",
+            ].join(" ")}
           >
-            <Zap className="w-3.5 h-3.5" />
-            Step
+            {liveBuilding ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Building…
+              </>
+            ) : isLiveMode ? (
+              <>
+                <Radio className="w-3.5 h-3.5" />
+                Live Step
+              </>
+            ) : (
+              <>
+                <Zap className="w-3.5 h-3.5" />
+                Step
+              </>
+            )}
           </button>
 
           <button
@@ -176,14 +299,16 @@ export default function SimulatorPage() {
             Load Demo
           </button>
 
-          <button
-            data-testid="button-fund"
-            onClick={fund}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium bg-secondary text-secondary-foreground hover:opacity-80 border border-primary/30 text-primary transition-opacity"
-          >
-            <Coins className="w-3.5 h-3.5" />
-            Fund Machine
-          </button>
+          {!isLiveMode && (
+            <button
+              data-testid="button-fund"
+              onClick={fund}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium bg-secondary text-secondary-foreground hover:opacity-80 border border-primary/30 text-primary transition-opacity"
+            >
+              <Coins className="w-3.5 h-3.5" />
+              Fund Machine
+            </button>
+          )}
 
           <button
             data-testid="button-export-csv"
@@ -195,6 +320,14 @@ export default function SimulatorPage() {
             Export CSV
           </button>
         </div>
+
+        {/* Live build error */}
+        {liveBuildError && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/30 text-destructive text-xs font-mono">
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+            {liveBuildError}
+          </div>
+        )}
       </header>
 
       {/* ── MAIN CONTENT ── */}
@@ -203,8 +336,8 @@ export default function SimulatorPage() {
         {/* ── LEFT / MAIN COLUMN ── */}
         <div className="flex-1 flex flex-col min-w-0">
 
-          {/* Out-of-funds banner */}
-          {state.outOfFunds && (
+          {/* Out-of-funds banner (simulation mode only) */}
+          {state.outOfFunds && !isLiveMode && (
             <div className="mx-4 mt-4 px-4 py-3 rounded-md bg-destructive/10 border border-destructive/40 text-destructive text-sm font-medium flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-destructive animate-pulse flex-shrink-0" />
               Out of Funds — click Fund Machine to continue
@@ -441,6 +574,18 @@ export default function SimulatorPage() {
             headPosition={state.headPosition}
             machineState={state.machineState}
           />
+
+          {/* ── LIVE MODE PANEL (record-only only) ── */}
+          {state.scriptMode === "record-only" && (
+            <div className="px-4 pb-4">
+              <LiveModePanel
+                enabled={liveEnabled}
+                onEnable={handleEnableLive}
+                onDisable={handleDisableLive}
+                currentUtxo={currentUtxo}
+              />
+            </div>
+          )}
         </div>
 
         {/* ── RIGHT COLUMN: TX LOG ── */}
@@ -451,6 +596,11 @@ export default function SimulatorPage() {
               <span className="text-xs text-muted-foreground font-mono uppercase tracking-widest">
                 Transaction Log
               </span>
+              {isLiveMode && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-primary/20 text-primary border border-primary/30 uppercase">
+                  Live
+                </span>
+              )}
             </div>
             <span className="text-xs font-mono text-primary">
               {state.transactions.length} tx
@@ -462,29 +612,42 @@ export default function SimulatorPage() {
               <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
                 <Activity className="w-8 h-8 mb-3 opacity-20" />
                 <p className="text-xs font-mono">No transactions yet</p>
-                <p className="text-xs text-muted-foreground/50 mt-1">Press Start or Step to begin</p>
+                <p className="text-xs text-muted-foreground/50 mt-1">
+                  {isLiveMode ? "Click Live Step to broadcast" : "Press Start or Step to begin"}
+                </p>
               </div>
             ) : (
               <div className="divide-y divide-border/40">
-                {state.transactions.map((tx) => (
-                  <div
-                    key={tx.txid}
-                    data-testid={`tx-entry-${tx.step}`}
-                    className="px-4 py-2.5 hover:bg-muted/10 transition-colors"
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] font-mono text-muted-foreground/60 w-8 flex-shrink-0">
-                        #{tx.step}
-                      </span>
-                      <span className="text-[10px] font-mono text-primary truncate">
-                        {shortTxid(tx.txid)}
-                      </span>
+                {state.transactions.map((tx) => {
+                  const isLiveTx = tx.description.startsWith("LIVE |");
+                  return (
+                    <div
+                      key={tx.txid}
+                      data-testid={`tx-entry-${tx.step}`}
+                      className={[
+                        "px-4 py-2.5 hover:bg-muted/10 transition-colors",
+                        isLiveTx ? "border-l-2 border-primary/40" : "",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-mono text-muted-foreground/60 w-8 flex-shrink-0">
+                          #{tx.step}
+                        </span>
+                        {isLiveTx && (
+                          <Radio className="w-2.5 h-2.5 text-primary flex-shrink-0" />
+                        )}
+                        <span className="text-[10px] font-mono text-primary truncate">
+                          {shortTxid(tx.txid)}
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-mono text-muted-foreground leading-relaxed pl-10 break-all">
+                        {tx.description
+                          .replace(/^TX-ID: [a-f0-9]+…[a-f0-9]+ \| /, "")
+                          .replace(/^LIVE \| [a-f0-9]+…[a-f0-9]+ \| /, "")}
+                      </p>
                     </div>
-                    <p className="text-[10px] font-mono text-muted-foreground leading-relaxed pl-10 break-all">
-                      {tx.description.replace(/^TX-ID: [a-f0-9]+…[a-f0-9]+ \| /, "")}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
                 <div ref={logEndRef} />
               </div>
             )}
@@ -507,9 +670,9 @@ export default function SimulatorPage() {
 
       {/* ── FOOTER ── */}
       <footer className="relative z-10 border-t border-border px-6 py-2 flex items-center gap-4 text-[10px] text-muted-foreground/40 font-mono flex-wrap">
-        <span>Simulation Mode</span>
+        <span>{isLiveMode ? "Live Mode — BSV Mainnet" : "Simulation Mode"}</span>
         <span className="w-px h-3 bg-border" />
-        <span>TXID = SHA256(encodedState)</span>
+        <span>{isLiveMode ? "TXID = WhatsOnChain broadcast" : "TXID = SHA256(encodedState)"}</span>
         <span className="w-px h-3 bg-border" />
         <span>
           Script:{" "}
@@ -517,17 +680,29 @@ export default function SimulatorPage() {
           {" · "}
           Sim: <span className="text-chart-3">{SCRIPT_MODES[state.scriptMode].simulationStatus}</span>
           {" · "}
-          Live: <span className="text-muted-foreground/60">{SCRIPT_MODES[state.scriptMode].liveStatus}</span>
+          Live: <span className={SCRIPT_MODES[state.scriptMode].liveStatus === 'active' ? 'text-chart-3' : 'text-muted-foreground/60'}>
+            {SCRIPT_MODES[state.scriptMode].liveStatus}
+          </span>
         </span>
         <span className="w-px h-3 bg-border" />
         <span>OP_CAT: Genesis 2020</span>
         <span className="w-px h-3 bg-border" />
         <span>SIGHASH_OTDA: Chronicle only</span>
         <span className="w-px h-3 bg-border" />
-        <a href="/docs/script-design.md" target="_blank" className="hover:text-muted-foreground transition-colors underline underline-offset-2">
-          Script Design Docs
-        </a>
+        <span>@bsv/sdk v2</span>
       </footer>
+
+      {/* ── BROADCAST DIALOG ── */}
+      {livePreview && (
+        <BroadcastDialog
+          open={broadcastOpen}
+          step={state.stepCount + 1}
+          preview={livePreview}
+          network={liveConfig?.network ?? "main"}
+          onSuccess={handleBroadcastSuccess}
+          onCancel={handleBroadcastCancel}
+        />
+      )}
     </div>
   );
 }

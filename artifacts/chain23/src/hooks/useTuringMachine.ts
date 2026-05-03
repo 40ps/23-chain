@@ -4,9 +4,11 @@
 import { useCallback, useRef, useState } from 'react';
 import { createTape, writeCell, moveHead, tapeToArray, parseTapeString, Tape } from '../core/tape';
 import { turingStep, describeStep } from '../core/turing';
+import { encodeStateToHex, encodeState } from '../core/encoder';
 import { SimulatedTx, simulateTransaction, downloadCSV } from '../bsv/txSimulator';
 import { SimulationWalletAdapter } from '../bsv/walletAdapter';
 import { ScriptMode } from '../bsv/scriptModes';
+import { LiveConfig, LiveUTXO, LiveTxPreview, buildRecordOnlyLiveTx } from '../bsv/liveTx';
 
 const DEMO_TAPE_STRING = '0000001101000000';
 const DEMO_HEAD = 6;
@@ -38,6 +40,13 @@ interface MachineSnapshot {
   speed: number;
 }
 
+// Pending live step: computed next state stored between buildLiveStep and commitLiveStep
+interface PendingLiveStep {
+  nextSnap: MachineSnapshot;
+  preview: LiveTxPreview;
+  stepDescription: string;
+}
+
 const DEFAULT_STATE: TuringMachineState = {
   tape: createTape([0]),
   headPosition: 0,
@@ -67,6 +76,7 @@ export function useTuringMachine() {
     speed: DEFAULT_STATE.speed,
   });
   const speedRef = useRef(DEFAULT_STATE.speed);
+  const pendingLiveRef = useRef<PendingLiveStep | null>(null);
 
   /** Execute one Turing step and return updated snapshot, or null if out of funds. */
   const executeOneStep = useCallback(
@@ -108,7 +118,7 @@ export function useTuringMachine() {
     []
   );
 
-  /** Single step — usable even while stopped */
+  /** Single simulation step — usable even while stopped */
   const step = useCallback(async () => {
     if (runningRef.current || uiState.outOfFunds) return;
     const newSnap = await executeOneStep(snapRef.current);
@@ -187,6 +197,7 @@ export function useTuringMachine() {
   ) => {
     abortRef.current = true;
     runningRef.current = false;
+    pendingLiveRef.current = null;
     walletRef.current = new SimulationWalletAdapter(INITIAL_BALANCE, FEE_PER_STEP);
     speedRef.current = 100;
     const newSnap: MachineSnapshot = {
@@ -208,6 +219,7 @@ export function useTuringMachine() {
       transactions: [],
       balance: INITIAL_BALANCE,
       speed: 100,
+      scriptMode: DEFAULT_STATE.scriptMode,
     });
   }, []);
 
@@ -247,6 +259,101 @@ export function useTuringMachine() {
     setUiState((s) => ({ ...s, scriptMode: mode }));
   }, []);
 
+  // ─── Live Mode ────────────────────────────────────────────────────────────
+
+  /**
+   * Compute the next Turing transition, encode the result state, build and sign
+   * a real P2PKH + OP_RETURN transaction using the provided LiveConfig.
+   * Stores the computed next snapshot in pendingLiveRef for commitLiveStep.
+   * Returns the transaction preview for display in the confirmation dialog.
+   * DOES NOT advance the machine state — call commitLiveStep after broadcast.
+   */
+  const buildLiveStep = useCallback(async (config: LiveConfig): Promise<LiveTxPreview> => {
+    const snap = snapRef.current;
+    const tapeCells = tapeToArray(snap.tape);
+    const result = turingStep(tapeCells, snap.headPosition, snap.machineState);
+
+    const tapeAfterWrite = writeCell(snap.tape, snap.headPosition, result.newSymbol);
+    const { tape: newTape, headPosition: newHead } = moveHead(
+      tapeAfterWrite,
+      snap.headPosition,
+      result.direction
+    );
+
+    const newStep = snap.stepCount + 1;
+    const desc = describeStep(result);
+    const newCells = tapeToArray(newTape);
+
+    // Encode the state that results from this transition — goes in OP_RETURN
+    const payloadHex = encodeStateToHex(newCells, newHead, result.newState);
+    const payloadDecoded = encodeState(newCells, newHead, result.newState);
+
+    const preview = await buildRecordOnlyLiveTx(config, payloadHex, payloadDecoded);
+
+    // Store the pre-computed next state so commitLiveStep can use it without re-computing
+    pendingLiveRef.current = {
+      nextSnap: {
+        tape: newTape,
+        headPosition: newHead,
+        machineState: result.newState,
+        stepCount: newStep,
+        transactions: snap.transactions,
+        speed: snap.speed,
+      },
+      preview,
+      stepDescription: desc,
+    };
+
+    return preview;
+  }, []);
+
+  /**
+   * Advance the machine state using the pre-computed next snapshot from buildLiveStep,
+   * recording the real broadcast TXID in the transaction log.
+   * Clears pendingLiveRef when done.
+   */
+  const commitLiveStep = useCallback((realTxid: string) => {
+    const pending = pendingLiveRef.current;
+    if (!pending) return;
+
+    const { nextSnap, preview, stepDescription } = pending;
+
+    const liveTx: SimulatedTx = {
+      txid: realTxid,
+      step: nextSnap.stepCount,
+      encodedState: preview.opReturnPayloadDecoded,
+      hexEncodedState: preview.opReturnPayloadHex,
+      opReturnData: `OP_RETURN ${preview.opReturnPayloadHex}`,
+      description: `LIVE | ${realTxid.slice(0, 8)}…${realTxid.slice(-6)} | ${stepDescription}`,
+      timestamp: Date.now(),
+    };
+
+    const finalSnap: MachineSnapshot = {
+      ...nextSnap,
+      transactions: [...nextSnap.transactions, liveTx],
+    };
+
+    snapRef.current = finalSnap;
+    pendingLiveRef.current = null;
+
+    setUiState((s) => ({
+      ...s,
+      tape: finalSnap.tape,
+      headPosition: finalSnap.headPosition,
+      machineState: finalSnap.machineState,
+      stepCount: finalSnap.stepCount,
+      transactions: finalSnap.transactions,
+    }));
+  }, []);
+
+  /**
+   * Cancel a pending live step (e.g. user dismissed the dialog).
+   * Does not advance the machine state.
+   */
+  const cancelLiveStep = useCallback(() => {
+    pendingLiveRef.current = null;
+  }, []);
+
   return {
     state: uiState,
     step,
@@ -259,5 +366,8 @@ export function useTuringMachine() {
     exportCSV,
     setCustomTape,
     setScriptMode,
+    buildLiveStep,
+    commitLiveStep,
+    cancelLiveStep,
   };
 }

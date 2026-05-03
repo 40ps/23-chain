@@ -46,7 +46,7 @@ export const SCRIPT_MODES: Record<ScriptMode, ScriptModeInfo> = {
     recordsState: true,
     verifiesTransition: false,
     simulationStatus: 'active',
-    liveStatus: 'template',
+    liveStatus: 'active',
     description:
       'Each computation step is recorded as a P2PKH transaction with an OP_RETURN output carrying the encoded Turing state. State transitions are not verified on-chain — correctness is guaranteed by replaying the OP_RETURN chain off-chain.',
     requirements: [
