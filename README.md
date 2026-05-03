@@ -181,7 +181,6 @@ Quick demo:
 ---
 
 ## 🧱 Architecture
-## Architecture
 
 ```
 artifacts/chain23/src/
