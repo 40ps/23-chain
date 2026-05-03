@@ -2,6 +2,9 @@
 
 This project demonstrates that BitcoinSV is a Universal Turing Machine. Using the Wolfram (2,3) ruleset, we show how any computable function can be executed as a chain of transactions, limited only by transaction size and available funding.
 
+## License
+MIT License
+
 ## Overview
 
 23-Chain simulates a Wolfram (2,3) Turing Machine where each computation step is modeled as a BSV blockchain transaction. The encoded machine state is stored in `OP_RETURN` outputs, making the full execution trace verifiable and permanent on-chain (in Simulation Mode, cryptographically consistent fake TXIDs are used).
