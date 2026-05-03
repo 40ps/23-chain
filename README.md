@@ -1,4 +1,5 @@
 # 23-Chain — BitcoinSV Turing Machine Demo
+*A Turing Machine executed as a chain of Bitcoin SV transactions*
 
 23-Chain is a visual demonstration of how a universal (2,3) Wolfram Turing Machine can be modeled as a sequence of Bitcoin SV transactions.
 
@@ -14,6 +15,17 @@ This project explores the boundary between:
 - **enforcing computation on-chain via Bitcoin Script**
 
 It demonstrates how computation can be serialized into transaction chains, and how future covenant designs could validate state transitions directly in Script.
+
+---
+
+## 📊 Demo
+
+Quick demo:
+
+1. Click **Load Demo**
+2. Click **Step** multiple times
+3. Observe state transitions
+4. (Optional) Enable **Dry Run** or **Live Mode**
 
 ---
 
@@ -111,6 +123,7 @@ Includes:
 ---
 
 ## 🧾 Script Modes (Conceptual)
+These modes illustrate increasing levels of on-chain verification:
 
 ### 🟢 Record-Only Mode
 - P2PKH + OP_RETURN
@@ -138,7 +151,10 @@ Each step encodes the full machine state as:
 ```
 Example: `1|42|000120201` → converted to hex → embedded in `OP_RETURN`.
 
-TXID = `SHA256(encodedState)` — fully deterministic. Same state always produces the same TXID.
+TXID = `SHA256(encodedState)` 
+
+→ deterministic mapping:
+same state → same TXID
 
 ---
 
@@ -169,18 +185,10 @@ docs/testing.md
 
 ---
 
-## 📊 Demo
-
-Quick demo:
-
-1. Click **Load Demo**
-2. Click **Step** multiple times
-3. Observe state transitions
-4. (Optional) Enable **Dry Run** or **Live Mode**
-
----
 
 ## 🧱 Architecture
+
+Core logic and UI are separated from blockchain interaction:
 
 ```
 artifacts/chain23/src/
