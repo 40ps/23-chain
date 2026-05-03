@@ -87,10 +87,25 @@ export function tapeToArray(tape: Tape): number[] {
 /**
  * Parse a tape string: accepts characters '0', '1', '2'.
  * Silently drops any other characters.
+ * Use validateTapeString first if you want to reject bad input.
  */
 export function parseTapeString(input: string): number[] {
   return input
     .split('')
     .filter((c) => c === '0' || c === '1' || c === '2')
     .map(Number);
+}
+
+/**
+ * Validate a tape string — only characters '0', '1', '2' are allowed.
+ * Returns an error message string if invalid, or null if valid.
+ */
+export function validateTapeString(input: string): string | null {
+  if (input.trim().length === 0) return 'Tape cannot be empty.';
+  const invalid = input.split('').filter((c) => c !== '0' && c !== '1' && c !== '2');
+  if (invalid.length > 0) {
+    const unique = [...new Set(invalid)].map((c) => `'${c}'`).join(', ');
+    return `Invalid symbol(s): ${unique}. Only 0, 1, and 2 are allowed.`;
+  }
+  return null;
 }

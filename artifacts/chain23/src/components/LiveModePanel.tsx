@@ -4,8 +4,26 @@
 // to @bsv/sdk's signing API in-memory.
 
 import { useState, useCallback, useEffect } from 'react';
-import { LiveConfig, LiveNetwork, LiveUTXO, deriveAddress } from '@/bsv/liveTx';
-import { Radio, Lock, AlertCircle, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react';
+import {
+  LiveConfig,
+  LiveNetwork,
+  LiveUTXO,
+  deriveAddress,
+  validateWifNetwork,
+  validateTxid,
+  validateVout,
+  validateSatoshis,
+} from '@/bsv/liveTx';
+import {
+  Radio,
+  Lock,
+  AlertCircle,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  FlaskConical,
+} from 'lucide-react';
 
 interface Props {
   enabled: boolean;
@@ -24,32 +42,40 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
   const [satoshis, setSatoshis] = useState('');
   const [wif, setWif] = useState('');
   const [showWif, setShowWif] = useState(false);
+  const [dryRun, setDryRun] = useState(false);
 
   // Derived address preview (computed locally, no network call)
   const [derivedAddress, setDerivedAddress] = useState('');
-  const [wifError, setWifError] = useState('');
+  const [wifCryptoError, setWifCryptoError] = useState('');
 
+  // Per-field validation errors
+  const txidError = txid ? validateTxid(txid) : null;
+  const voutError = vout ? validateVout(vout) : null;
+  const satoshisError = satoshis ? validateSatoshis(satoshis) : null;
+  const wifNetworkError = wif && wif.length >= 50 ? validateWifNetwork(wif, network) : null;
+  const wifError = wifCryptoError || wifNetworkError;
+
+  // Re-derive address whenever WIF or network changes
   useEffect(() => {
-    if (!wif.trim()) {
-      setDerivedAddress('');
-      setWifError('');
-      return;
-    }
+    setWifCryptoError('');
+    setDerivedAddress('');
+    if (!wif.trim() || wif.trim().length < 50) return;
+    if (wifNetworkError) return; // skip expensive crypto if prefix already fails
     try {
       const addr = deriveAddress(wif.trim(), network);
       setDerivedAddress(addr);
-      setWifError('');
     } catch {
-      setDerivedAddress('');
-      setWifError('Invalid WIF key for selected network');
+      setWifCryptoError('Invalid WIF key — cannot derive address.');
     }
-  }, [wif, network]);
+  }, [wif, network, wifNetworkError]);
 
   const isValid =
+    !txidError &&
     txid.trim().length === 64 &&
-    !isNaN(parseInt(vout, 10)) &&
-    !isNaN(parseInt(satoshis, 10)) &&
-    parseInt(satoshis, 10) > 300 && // sanity: must cover at least a minimal fee
+    !voutError &&
+    vout.trim().length > 0 &&
+    !satoshisError &&
+    satoshis.trim().length > 0 &&
     wif.trim().length > 0 &&
     !wifError;
 
@@ -63,14 +89,16 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
       },
       wif: wif.trim(),
       network,
+      dryRun,
     };
     onEnable(config);
     setExpanded(false);
-  }, [isValid, txid, vout, satoshis, wif, network, onEnable]);
+  }, [isValid, txid, vout, satoshis, wif, network, dryRun, onEnable]);
 
   const handleDisable = useCallback(() => {
     setWif(''); // clear key from memory
     setDerivedAddress('');
+    setWifCryptoError('');
     onDisable();
   }, [onDisable]);
 
@@ -96,7 +124,9 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
               {currentUtxo.satoshis.toLocaleString()} sat available
             </span>
           )}
-          {expanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+          {expanded
+            ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+            : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
         </div>
       </button>
 
@@ -105,7 +135,7 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
 
           {/* Description */}
           <p className="text-[11px] font-mono text-muted-foreground leading-relaxed">
-            Provide a funded UTXO and WIF key. Each step broadcasts a real P2PKH + OP_RETURN
+            Provide a funded UTXO and WIF key. Each step builds and signs a real P2PKH + OP_RETURN
             transaction. You confirm the raw hex and fee before anything is sent.
             The WIF is held only in-memory and never stored.
           </p>
@@ -170,7 +200,7 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
                 {network === 'main' && (
                   <p className="text-[10px] font-mono text-primary/60 mt-1.5 flex items-center gap-1">
                     <AlertCircle className="w-3 h-3" />
-                    Mainnet — real satoshis will be spent
+                    Mainnet — real satoshis will be spent unless Dry Run is enabled
                   </p>
                 )}
               </div>
@@ -186,10 +216,13 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
                   onChange={(e) => setTxid(e.target.value)}
                   placeholder="64-character hex txid"
                   spellCheck={false}
-                  className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                  className={[
+                    'w-full bg-background border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring',
+                    txidError ? 'border-destructive/60' : 'border-border',
+                  ].join(' ')}
                 />
-                {txid && txid.trim().length !== 64 && (
-                  <p className="text-[10px] font-mono text-destructive mt-1">TXID must be 64 hex characters</p>
+                {txidError && (
+                  <p className="text-[10px] font-mono text-destructive mt-1">{txidError}</p>
                 )}
               </div>
 
@@ -205,8 +238,14 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
                     onChange={(e) => setVout(e.target.value)}
                     min={0}
                     placeholder="0"
-                    className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                    className={[
+                      'w-full bg-background border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring',
+                      voutError ? 'border-destructive/60' : 'border-border',
+                    ].join(' ')}
                   />
+                  {voutError && (
+                    <p className="text-[10px] font-mono text-destructive mt-1">{voutError}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-1.5">
@@ -216,10 +255,21 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
                     type="number"
                     value={satoshis}
                     onChange={(e) => setSatoshis(e.target.value)}
-                    min={300}
+                    min={600}
                     placeholder="e.g. 10000"
-                    className="w-full bg-background border border-border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                    className={[
+                      'w-full bg-background border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring',
+                      satoshisError ? 'border-destructive/60' : 'border-border',
+                    ].join(' ')}
                   />
+                  {satoshisError && (
+                    <p className="text-[10px] font-mono text-destructive mt-1">{satoshisError}</p>
+                  )}
+                  {!satoshisError && satoshis && (
+                    <p className="text-[10px] font-mono text-muted-foreground/50 mt-0.5">
+                      Est. fee ≈ 1 sat (1 sat/kb)
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -235,10 +285,17 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
                     type={showWif ? 'text' : 'password'}
                     value={wif}
                     onChange={(e) => setWif(e.target.value)}
-                    placeholder="Starts with 5, K, or L (mainnet) / c or 9 (testnet)"
+                    placeholder={
+                      network === 'main'
+                        ? 'Mainnet: starts with 5, K, or L'
+                        : 'Testnet: starts with 9 or c'
+                    }
                     autoComplete="off"
                     spellCheck={false}
-                    className="w-full bg-background border border-border rounded px-2.5 py-1.5 pr-9 text-xs font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                    className={[
+                      'w-full bg-background border rounded px-2.5 py-1.5 pr-9 text-xs font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring',
+                      wifError ? 'border-destructive/60' : 'border-border',
+                    ].join(' ')}
                   />
                   <button
                     type="button"
@@ -251,24 +308,65 @@ export default function LiveModePanel({ enabled, onEnable, onDisable, currentUtx
                 {wifError && (
                   <p className="text-[10px] font-mono text-destructive mt-1">{wifError}</p>
                 )}
-                {derivedAddress && (
-                  <p className="text-[10px] font-mono text-chart-3 mt-1 break-all">
-                    Address: {derivedAddress}
-                  </p>
+                {derivedAddress && !wifError && (
+                  <>
+                    <p className="text-[10px] font-mono text-chart-3 mt-1 break-all">
+                      Address: {derivedAddress}
+                    </p>
+                    <p className="text-[10px] font-mono text-muted-foreground/50 mt-0.5">
+                      Verify this matches the address that owns the UTXO above.
+                    </p>
+                  </>
                 )}
-                {derivedAddress && (
-                  <p className="text-[10px] font-mono text-muted-foreground/50 mt-0.5">
-                    Verify this matches the address that owns the UTXO above.
+              </div>
+
+              {/* ── Dry Run toggle ── */}
+              <div className="flex items-start gap-3 p-3 rounded-md bg-muted/10 border border-border/60">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={dryRun}
+                  onClick={() => setDryRun((v) => !v)}
+                  className={[
+                    'mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-colors',
+                    dryRun
+                      ? 'bg-primary/20 border-primary/60 text-primary'
+                      : 'bg-background border-border',
+                  ].join(' ')}
+                >
+                  {dryRun && <span className="text-[10px] font-bold">✓</span>}
+                </button>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <FlaskConical className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-[10px] font-mono text-foreground font-semibold uppercase tracking-widest">
+                      Dry Run
+                    </span>
+                    {dryRun && (
+                      <span className="px-1 py-0.5 rounded text-[9px] font-mono font-bold bg-muted/30 border border-border text-muted-foreground uppercase">
+                        On
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">
+                    Build and sign the transaction, show the full signed hex and fee, but
+                    do <em>not</em> broadcast. Machine state still advances so you can verify
+                    the payload without spending satoshis.
                   </p>
-                )}
+                </div>
               </div>
 
               <button
                 onClick={handleEnable}
                 disabled={!isValid}
-                className="w-full px-3 py-2 rounded-md bg-primary text-primary-foreground text-xs font-mono font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+                className={[
+                  'w-full px-3 py-2 rounded-md text-xs font-mono font-medium transition-opacity disabled:opacity-40 disabled:cursor-not-allowed',
+                  dryRun
+                    ? 'bg-muted border border-border text-foreground hover:opacity-80'
+                    : 'bg-primary text-primary-foreground hover:opacity-90',
+                ].join(' ')}
               >
-                Enable Live Mode
+                {dryRun ? 'Enable Live Mode (Dry Run)' : 'Enable Live Mode'}
               </button>
 
               <p className="text-[10px] font-mono text-muted-foreground/50 leading-relaxed">

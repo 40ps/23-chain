@@ -45,6 +45,8 @@ interface PendingLiveStep {
   nextSnap: MachineSnapshot;
   preview: LiveTxPreview;
   stepDescription: string;
+  stateBefore: string;
+  isDryRun: boolean;
 }
 
 const DEFAULT_STATE: TuringMachineState = {
@@ -84,6 +86,13 @@ export function useTuringMachine() {
       const hasFunds = walletRef.current.deductFee();
       if (!hasFunds) return null;
 
+      // Capture state before transition for audit trail
+      const stateBefore = encodeState(
+        tapeToArray(snap.tape),
+        snap.headPosition,
+        snap.machineState
+      );
+
       const tapeCells = tapeToArray(snap.tape);
       const result = turingStep(tapeCells, snap.headPosition, snap.machineState);
 
@@ -100,7 +109,14 @@ export function useTuringMachine() {
       const desc = describeStep(result);
       const newCells = tapeToArray(newTape);
 
-      const tx = await simulateTransaction(newCells, newHead, result.newState, newStep, desc);
+      const tx = await simulateTransaction(
+        newCells,
+        newHead,
+        result.newState,
+        newStep,
+        desc,
+        stateBefore
+      );
       const txWithId: SimulatedTx = {
         ...tx,
         description: `TX-ID: ${tx.txid.slice(0, 8)}…${tx.txid.slice(-6)} | ${desc}`,
@@ -267,10 +283,16 @@ export function useTuringMachine() {
    * Stores the computed next snapshot in pendingLiveRef for commitLiveStep.
    * Returns the transaction preview for display in the confirmation dialog.
    * DOES NOT advance the machine state — call commitLiveStep after broadcast.
+   *
+   * If config.dryRun is true, the tx is built and signed but NOT broadcast.
    */
   const buildLiveStep = useCallback(async (config: LiveConfig): Promise<LiveTxPreview> => {
     const snap = snapRef.current;
     const tapeCells = tapeToArray(snap.tape);
+
+    // Capture state before transition for the audit trail
+    const stateBefore = encodeState(tapeCells, snap.headPosition, snap.machineState);
+
     const result = turingStep(tapeCells, snap.headPosition, snap.machineState);
 
     const tapeAfterWrite = writeCell(snap.tape, snap.headPosition, result.newSymbol);
@@ -302,6 +324,8 @@ export function useTuringMachine() {
       },
       preview,
       stepDescription: desc,
+      stateBefore,
+      isDryRun: config.dryRun,
     };
 
     return preview;
@@ -309,23 +333,28 @@ export function useTuringMachine() {
 
   /**
    * Advance the machine state using the pre-computed next snapshot from buildLiveStep,
-   * recording the real broadcast TXID in the transaction log.
+   * recording the real broadcast TXID (or dry-run placeholder) in the transaction log.
    * Clears pendingLiveRef when done.
    */
   const commitLiveStep = useCallback((realTxid: string) => {
     const pending = pendingLiveRef.current;
     if (!pending) return;
 
-    const { nextSnap, preview, stepDescription } = pending;
+    const { nextSnap, preview, stepDescription, stateBefore, isDryRun } = pending;
 
     const liveTx: SimulatedTx = {
       txid: realTxid,
       step: nextSnap.stepCount,
+      stateBefore,
       encodedState: preview.opReturnPayloadDecoded,
       hexEncodedState: preview.opReturnPayloadHex,
       opReturnData: `OP_RETURN ${preview.opReturnPayloadHex}`,
-      description: `LIVE | ${realTxid.slice(0, 8)}…${realTxid.slice(-6)} | ${stepDescription}`,
+      description: isDryRun
+        ? `DRY-RUN | ${stepDescription}`
+        : `LIVE | ${realTxid.slice(0, 8)}…${realTxid.slice(-6)} | ${stepDescription}`,
       timestamp: Date.now(),
+      mode: isDryRun ? 'live-dry-run' : 'live-broadcast',
+      payloadSizeBytes: preview.opReturnSizeBytes,
     };
 
     const finalSnap: MachineSnapshot = {

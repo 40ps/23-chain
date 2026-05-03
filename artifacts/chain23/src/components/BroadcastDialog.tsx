@@ -1,10 +1,21 @@
 // BroadcastDialog — shows full tx details before broadcasting and handles the
 // broadcast lifecycle: idle → broadcasting → success | error.
 // The user must explicitly confirm before anything is sent.
+// In Dry Run mode: the tx is displayed but broadcastLiveTx is never called.
 
 import { useState, useCallback } from 'react';
 import { LiveTxPreview, LiveNetwork, broadcastLiveTx } from '@/bsv/liveTx';
-import { ExternalLink, Copy, Check, Loader2, Radio, X, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  ExternalLink,
+  Copy,
+  Check,
+  Loader2,
+  Radio,
+  X,
+  ChevronDown,
+  ChevronRight,
+  FlaskConical,
+} from 'lucide-react';
 
 type Phase = 'confirm' | 'broadcasting' | 'success' | 'error';
 
@@ -13,6 +24,7 @@ interface Props {
   step: number;
   preview: LiveTxPreview;
   network: LiveNetwork;
+  dryRun: boolean;
   onSuccess: (txid: string, changeSatoshis: number) => void;
   onCancel: () => void;
 }
@@ -36,7 +48,15 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export default function BroadcastDialog({ open, step, preview, network, onSuccess, onCancel }: Props) {
+export default function BroadcastDialog({
+  open,
+  step,
+  preview,
+  network,
+  dryRun,
+  onSuccess,
+  onCancel,
+}: Props) {
   const [phase, setPhase] = useState<Phase>('confirm');
   const [realTxid, setRealTxid] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -48,6 +68,14 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
       : 'https://test.whatsonchain.com/tx/';
 
   const handleBroadcast = useCallback(async () => {
+    if (dryRun) {
+      // Dry run: do not broadcast; generate a placeholder ID and go straight to success
+      const dryRunId = `DRY-RUN:${step}:${Date.now()}`;
+      setRealTxid(dryRunId);
+      setPhase('success');
+      return;
+    }
+
     setPhase('broadcasting');
     setErrorMsg('');
     try {
@@ -58,7 +86,7 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
       setErrorMsg(err instanceof Error ? err.message : String(err));
       setPhase('error');
     }
-  }, [preview.signedHex, network]);
+  }, [dryRun, preview.signedHex, network, step]);
 
   const handleSuccess = useCallback(() => {
     onSuccess(realTxid, preview.changeSatoshis);
@@ -77,6 +105,9 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
 
   if (!open) return null;
 
+  const isDryRunSuccess = phase === 'success' && dryRun;
+  const isLiveBroadcastSuccess = phase === 'success' && !dryRun;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -91,14 +122,25 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <Radio className="w-4 h-4 text-primary" />
+            {dryRun
+              ? <FlaskConical className="w-4 h-4 text-muted-foreground" />
+              : <Radio className="w-4 h-4 text-primary" />}
             <span className="font-mono text-sm font-semibold text-foreground">
-              {phase === 'success'
+              {isLiveBroadcastSuccess
                 ? 'Transaction Confirmed'
+                : isDryRunSuccess
+                ? 'Dry Run Complete'
                 : phase === 'error'
                 ? 'Broadcast Failed'
+                : dryRun
+                ? `Dry Run — Step #${step}`
                 : `Broadcast Step #${step}`}
             </span>
+            {dryRun && phase !== 'success' && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-muted/30 border border-border text-muted-foreground uppercase tracking-widest">
+                Dry Run
+              </span>
+            )}
           </div>
           <button
             onClick={handleCancel}
@@ -112,8 +154,49 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
         {/* Body */}
         <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
 
-          {/* ── SUCCESS ── */}
-          {phase === 'success' && (
+          {/* ── DRY RUN SUCCESS ── */}
+          {isDryRunSuccess && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 p-3 rounded-md bg-muted/20 border border-border">
+                <FlaskConical className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <span className="text-xs font-mono text-muted-foreground">
+                  Transaction built and signed. Not broadcast — no satoshis spent.
+                </span>
+              </div>
+
+              <div className="bg-background border border-border rounded-md p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground uppercase tracking-widest font-mono">Signed Hex (not broadcast)</span>
+                  <CopyButton text={preview.signedHex} />
+                </div>
+                <pre className="text-[10px] font-mono text-muted-foreground/60 break-all whitespace-pre-wrap max-h-32 overflow-y-auto">
+                  {preview.signedHex}
+                </pre>
+                <p className="text-[10px] font-mono text-muted-foreground/40">
+                  {preview.signedHex.length / 2} bytes — {preview.feeSatoshis} sat fee would have been paid
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-background border border-border rounded-md p-3 text-center">
+                  <p className="text-xs text-muted-foreground font-mono mb-1">Would-Be Fee</p>
+                  <p className="text-sm font-mono font-bold text-muted-foreground">{preview.feeSatoshis} sat</p>
+                </div>
+                <div className="bg-background border border-border rounded-md p-3 text-center">
+                  <p className="text-xs text-muted-foreground font-mono mb-1">Would-Be Change</p>
+                  <p className="text-sm font-mono font-bold text-muted-foreground">{preview.changeSatoshis} sat</p>
+                </div>
+              </div>
+
+              <p className="text-[10px] font-mono text-muted-foreground/60 leading-relaxed">
+                Machine state has been advanced locally. The UTXO balance shown is unchanged
+                (no real transaction was submitted). Disable Dry Run to broadcast for real.
+              </p>
+            </div>
+          )}
+
+          {/* ── LIVE BROADCAST SUCCESS ── */}
+          {isLiveBroadcastSuccess && (
             <div className="space-y-4">
               <div className="flex items-center gap-2 p-3 rounded-md bg-chart-3/10 border border-chart-3/30">
                 <Check className="w-4 h-4 text-chart-3 flex-shrink-0" />
@@ -161,7 +244,8 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
                 <p className="text-xs font-mono text-destructive break-words">{errorMsg}</p>
               </div>
               <p className="text-xs text-muted-foreground font-mono">
-                The transaction was not broadcast. You can try again or cancel to go back.
+                The transaction was not broadcast. Machine state has not advanced.
+                You can try again or cancel.
               </p>
             </div>
           )}
@@ -169,6 +253,14 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
           {/* ── CONFIRM / BROADCASTING ── */}
           {(phase === 'confirm' || phase === 'broadcasting') && (
             <>
+              {/* Dry run notice */}
+              {dryRun && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border text-[10px] font-mono text-muted-foreground">
+                  <FlaskConical className="w-3 h-3 flex-shrink-0" />
+                  Dry Run — the transaction will be built and signed but NOT broadcast.
+                </div>
+              )}
+
               {/* OP_RETURN payload */}
               <div className="bg-background border border-border rounded-md p-3 space-y-2">
                 <div className="flex items-center justify-between">
@@ -181,6 +273,15 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
                   {preview.opReturnSizeBytes} bytes
                 </p>
               </div>
+
+              {/* Satoshis guard: warn if change would be zero or negative */}
+              {preview.changeSatoshis <= 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-destructive/10 border border-destructive/30 text-[10px] font-mono text-destructive">
+                  <X className="w-3 h-3 flex-shrink-0" />
+                  Change output is {preview.changeSatoshis} sat — UTXO does not cover the fee.
+                  This transaction would be rejected.
+                </div>
+              )}
 
               {/* Fee / Change summary */}
               <div className="grid grid-cols-3 gap-2 text-center">
@@ -196,7 +297,9 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
                 </div>
                 <div className="bg-background border border-border rounded-md p-2">
                   <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest mb-1">Change</p>
-                  <p className="text-xs font-mono font-bold text-chart-3">{preview.changeSatoshis} sat</p>
+                  <p className={`text-xs font-mono font-bold ${preview.changeSatoshis > 0 ? 'text-chart-3' : 'text-destructive'}`}>
+                    {preview.changeSatoshis} sat
+                  </p>
                 </div>
               </div>
 
@@ -216,9 +319,11 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
                   className="flex items-center justify-between w-full px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-colors"
                 >
                   <div className="flex items-center gap-2">
-                    {hexExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                    {hexExpanded
+                      ? <ChevronDown className="w-3.5 h-3.5" />
+                      : <ChevronRight className="w-3.5 h-3.5" />}
                     <span className="font-mono uppercase tracking-widest">
-                      Raw Transaction Hex
+                      Signed Transaction Hex
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -237,11 +342,19 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
                 )}
               </div>
 
-              {/* Warning */}
-              <p className="text-[10px] font-mono text-muted-foreground/60 leading-relaxed">
-                This will broadcast a real transaction to BSV {network === 'main' ? 'mainnet' : 'testnet'}.
-                The fee of {preview.feeSatoshis} satoshis is non-refundable. Review the details above before confirming.
-              </p>
+              {/* Warning / dry run note */}
+              {dryRun ? (
+                <p className="text-[10px] font-mono text-muted-foreground/60 leading-relaxed">
+                  Clicking <strong>Dry Run</strong> will advance the machine state locally.
+                  The signed hex is shown above but nothing is sent to the network.
+                </p>
+              ) : (
+                <p className="text-[10px] font-mono text-muted-foreground/60 leading-relaxed">
+                  This will broadcast a real transaction to BSV {network === 'main' ? 'mainnet' : 'testnet'}.
+                  The fee of {preview.feeSatoshis} satoshis is non-refundable.
+                  Review the details above before confirming.
+                </p>
+              )}
             </>
           )}
         </div>
@@ -281,13 +394,23 @@ export default function BroadcastDialog({ open, step, preview, network, onSucces
               </button>
               <button
                 onClick={handleBroadcast}
-                disabled={phase === 'broadcasting'}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
+                disabled={phase === 'broadcasting' || preview.changeSatoshis <= 0}
+                className={[
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-opacity disabled:opacity-60 disabled:cursor-not-allowed',
+                  dryRun
+                    ? 'bg-muted border border-border text-foreground hover:opacity-80'
+                    : 'bg-primary text-primary-foreground hover:opacity-90',
+                ].join(' ')}
               >
                 {phase === 'broadcasting' ? (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     Broadcasting…
+                  </>
+                ) : dryRun ? (
+                  <>
+                    <FlaskConical className="w-3.5 h-3.5" />
+                    Dry Run
                   </>
                 ) : (
                   <>

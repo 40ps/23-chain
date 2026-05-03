@@ -25,6 +25,7 @@ export interface LiveConfig {
   utxo: LiveUTXO;
   wif: string;
   network: LiveNetwork;
+  dryRun: boolean; // if true: build + sign but do NOT broadcast
 }
 
 export interface LiveTxPreview {
@@ -38,15 +39,68 @@ export interface LiveTxPreview {
   address: string;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Validation helpers ───────────────────────────────────────────────────────
 
-function hexToBytes(hex: string): number[] {
-  const result: number[] = [];
-  for (let i = 0; i < hex.length; i += 2) {
-    result.push(parseInt(hex.substring(i, i + 2), 16));
+/**
+ * Validate that a WIF key's prefix is consistent with the chosen network.
+ * Returns an error string if mismatched, null if consistent.
+ * Note: this is a prefix heuristic — the full cryptographic check happens inside
+ * PrivateKey.fromWif(), which will throw if the WIF is truly invalid.
+ */
+export function validateWifNetwork(wif: string, network: LiveNetwork): string | null {
+  if (!wif || wif.length < 50) return null; // too short to determine prefix meaning
+  const first = wif[0];
+  if (network === 'main') {
+    // Mainnet WIF: uncompressed starts with '5', compressed starts with 'K' or 'L'
+    if (first !== '5' && first !== 'K' && first !== 'L') {
+      return "WIF prefix suggests a testnet key — either switch to Testnet or use a mainnet key (starts with 5, K, or L).";
+    }
+  } else {
+    // Testnet WIF: uncompressed starts with '9', compressed starts with 'c'
+    if (first !== '9' && first !== 'c') {
+      return "WIF prefix suggests a mainnet key — either switch to Mainnet or use a testnet key (starts with 9 or c).";
+    }
   }
-  return result;
+  return null;
 }
+
+/**
+ * Validate a UTXO TXID string.
+ * Returns an error string if invalid, null if valid.
+ */
+export function validateTxid(txid: string): string | null {
+  const trimmed = txid.trim();
+  if (trimmed.length === 0) return 'TXID is required.';
+  if (trimmed.length !== 64) return `TXID must be exactly 64 hex characters (got ${trimmed.length}).`;
+  if (!/^[0-9a-fA-F]{64}$/.test(trimmed)) return 'TXID must contain only hex characters (0–9, a–f).';
+  return null;
+}
+
+/**
+ * Validate a UTXO vout index.
+ * Returns an error string if invalid, null if valid.
+ */
+export function validateVout(vout: string): string | null {
+  const n = parseInt(vout, 10);
+  if (isNaN(n)) return 'Output index must be a number.';
+  if (n < 0) return 'Output index must be 0 or greater.';
+  if (String(n) !== vout.trim()) return 'Output index must be a whole number.';
+  return null;
+}
+
+/**
+ * Validate UTXO satoshis amount.
+ * Returns an error string if too low, null if acceptable.
+ * Minimum 600 sat: covers ~1 sat fee + minimum P2PKH dust (546 sat) + safety margin.
+ */
+export function validateSatoshis(satoshis: string): string | null {
+  const n = parseInt(satoshis, 10);
+  if (isNaN(n)) return 'Satoshis must be a number.';
+  if (n < 600) return 'Must be at least 600 sat (covers minimum fee + change dust threshold).';
+  return null;
+}
+
+// ─── Address derivation ───────────────────────────────────────────────────────
 
 export function deriveAddress(wif: string, network: LiveNetwork): string {
   const privateKey = PrivateKey.fromWif(wif);
@@ -64,6 +118,7 @@ export function deriveAddress(wif: string, network: LiveNetwork): string {
  *   Output[1] — P2PKH change back to same address (continuation UTXO)
  *
  * No keys are hardcoded. The WIF is passed at call-time and used only in-memory.
+ * This function always builds and signs. Broadcasting is a separate step.
  */
 export async function buildRecordOnlyLiveTx(
   config: LiveConfig,
@@ -129,6 +184,7 @@ export async function buildRecordOnlyLiveTx(
 /**
  * Broadcast a signed raw transaction via WhatsOnChain.
  * Returns the real TXID on success. Throws a descriptive error on failure.
+ * Never fakes a success response.
  */
 export async function broadcastLiveTx(
   signedHex: string,
@@ -143,4 +199,14 @@ export async function broadcastLiveTx(
   throw new Error(
     `Broadcast failed [${result.code ?? 'ERR'}]: ${result.description}`
   );
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+
+function hexToBytes(hex: string): number[] {
+  const result: number[] = [];
+  for (let i = 0; i < hex.length; i += 2) {
+    result.push(parseInt(hex.substring(i, i + 2), 16));
+  }
+  return result;
 }

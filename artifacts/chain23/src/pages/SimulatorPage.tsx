@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useTuringMachine } from "@/hooks/useTuringMachine";
-import { tapeToArray } from "@/core/tape";
+import { tapeToArray, validateTapeString } from "@/core/tape";
 import ScriptModeSelector from "@/components/ScriptModeSelector";
 import LiveModePanel from "@/components/LiveModePanel";
 import BroadcastDialog from "@/components/BroadcastDialog";
@@ -53,6 +53,7 @@ export default function SimulatorPage() {
   const [customTapeStr, setCustomTapeStr] = useState("0000001101000000");
   const [customHead, setCustomHead] = useState("6");
   const [customStateNum, setCustomStateNum] = useState("0");
+  const [customTapeError, setCustomTapeError] = useState<string | null>(null);
 
   // ── Live Mode state ──────────────────────────────────────────────────────
   const [liveEnabled, setLiveEnabled] = useState(false);
@@ -83,6 +84,12 @@ export default function SimulatorPage() {
   }, [state.transactions.length]);
 
   const handleCustomLoad = useCallback(() => {
+    const tapeErr = validateTapeString(customTapeStr);
+    if (tapeErr) {
+      setCustomTapeError(tapeErr);
+      return;
+    }
+    setCustomTapeError(null);
     const h = parseInt(customHead, 10);
     const s = parseInt(customStateNum, 10);
     if (isNaN(h) || isNaN(s) || s < 0 || s > 1) return;
@@ -110,11 +117,10 @@ export default function SimulatorPage() {
   const handleBroadcastSuccess = useCallback(
     (txid: string, changeSatoshis: number) => {
       setBroadcastOpen(false);
-      setLivePreview(null);
-      // Advance the machine state with the real TXID
+      // Advance the machine state (always — real broadcast or dry run)
       commitLiveStep(txid);
-      // Update the UTXO to the change output for the next step
-      if (livePreview && liveConfig) {
+      // Update UTXO only for real broadcasts — dry run leaves UTXO unchanged
+      if (livePreview && liveConfig && !liveConfig.dryRun) {
         const newUtxo: LiveUTXO = {
           txid,
           vout: livePreview.changeVout,
@@ -123,6 +129,7 @@ export default function SimulatorPage() {
         setCurrentUtxo(newUtxo);
         setLiveConfig({ ...liveConfig, utxo: newUtxo });
       }
+      setLivePreview(null);
     },
     [commitLiveStep, livePreview, liveConfig]
   );
@@ -502,6 +509,12 @@ export default function SimulatorPage() {
                     Load
                   </button>
                 </div>
+                {customTapeError && (
+                  <p className="text-[10px] font-mono text-destructive mt-1.5 flex items-start gap-1">
+                    <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                    {customTapeError}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -699,6 +712,7 @@ export default function SimulatorPage() {
           step={state.stepCount + 1}
           preview={livePreview}
           network={liveConfig?.network ?? "main"}
+          dryRun={liveConfig?.dryRun ?? false}
           onSuccess={handleBroadcastSuccess}
           onCancel={handleBroadcastCancel}
         />
