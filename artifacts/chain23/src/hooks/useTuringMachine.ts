@@ -6,6 +6,7 @@ import { createTape, writeCell, moveHead, tapeToArray, parseTapeString, Tape } f
 import { turingStep, describeStep } from '../core/turing';
 import { SimulatedTx, simulateTransaction, downloadCSV } from '../bsv/txSimulator';
 import { SimulationWalletAdapter } from '../bsv/walletAdapter';
+import { ScriptMode } from '../bsv/scriptModes';
 
 const DEMO_TAPE_STRING = '0000001101000000';
 const DEMO_HEAD = 6;
@@ -24,6 +25,7 @@ export interface TuringMachineState {
   transactions: SimulatedTx[];
   balance: bigint;
   speed: number;
+  scriptMode: ScriptMode;
 }
 
 // Internal mutable snapshot used by the async loop — avoids stale closures
@@ -46,6 +48,7 @@ const DEFAULT_STATE: TuringMachineState = {
   transactions: [],
   balance: INITIAL_BALANCE,
   speed: 100,
+  scriptMode: 'record-only',
 };
 
 export function useTuringMachine() {
@@ -240,6 +243,10 @@ export function useTuringMachine() {
     resetMachine(createTape(cells), clampedHead, clampedState);
   }, [resetMachine]);
 
+  const setScriptMode = useCallback((mode: ScriptMode) => {
+    setUiState((s) => ({ ...s, scriptMode: mode }));
+  }, []);
+
   return {
     state: uiState,
     step,
@@ -251,5 +258,6 @@ export function useTuringMachine() {
     setSpeed,
     exportCSV,
     setCustomTape,
+    setScriptMode,
   };
 }

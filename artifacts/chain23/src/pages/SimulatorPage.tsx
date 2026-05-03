@@ -1,6 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from "react";
 import { useTuringMachine } from "@/hooks/useTuringMachine";
 import { tapeToArray } from "@/core/tape";
+import ScriptModeSelector from "@/components/ScriptModeSelector";
+import { SCRIPT_MODES } from "@/bsv/scriptModes";
 import {
   Play,
   Square,
@@ -19,7 +21,7 @@ import {
 const CELL_W = 44;
 
 export default function SimulatorPage() {
-  const { state, step, start, stop, reset, loadDemo, fund, setSpeed, exportCSV, setCustomTape } =
+  const { state, step, start, stop, reset, loadDemo, fund, setSpeed, exportCSV, setCustomTape, setScriptMode } =
     useTuringMachine();
 
   const cells = tapeToArray(state.tape);
@@ -430,6 +432,15 @@ export default function SimulatorPage() {
               </div>
             )}
           </div>
+
+          {/* ── SCRIPT MODE SELECTOR ── */}
+          <ScriptModeSelector
+            selectedMode={state.scriptMode}
+            onSelectMode={setScriptMode}
+            tape={state.tape}
+            headPosition={state.headPosition}
+            machineState={state.machineState}
+          />
         </div>
 
         {/* ── RIGHT COLUMN: TX LOG ── */}
@@ -495,14 +506,23 @@ export default function SimulatorPage() {
       </div>
 
       {/* ── FOOTER ── */}
-      <footer className="relative z-10 border-t border-border px-6 py-2 flex items-center gap-4 text-[10px] text-muted-foreground/40 font-mono">
+      <footer className="relative z-10 border-t border-border px-6 py-2 flex items-center gap-4 text-[10px] text-muted-foreground/40 font-mono flex-wrap">
         <span>Simulation Mode</span>
         <span className="w-px h-3 bg-border" />
         <span>TXID = SHA256(encodedState)</span>
         <span className="w-px h-3 bg-border" />
-        <span>OP_CAT available since Genesis 2020</span>
+        <span>
+          Script:{" "}
+          <span className="text-primary/60">{SCRIPT_MODES[state.scriptMode].shortName}</span>
+          {" · "}
+          Sim: <span className="text-chart-3">{SCRIPT_MODES[state.scriptMode].simulationStatus}</span>
+          {" · "}
+          Live: <span className="text-muted-foreground/60">{SCRIPT_MODES[state.scriptMode].liveStatus}</span>
+        </span>
         <span className="w-px h-3 bg-border" />
-        <span>Live Mode: pending SIGHASH_OTDA (0x20) or OP_PUSH_TX impl</span>
+        <span>OP_CAT: Genesis 2020</span>
+        <span className="w-px h-3 bg-border" />
+        <span>SIGHASH_OTDA: Chronicle only</span>
         <span className="w-px h-3 bg-border" />
         <a href="/docs/script-design.md" target="_blank" className="hover:text-muted-foreground transition-colors underline underline-offset-2">
           Script Design Docs
