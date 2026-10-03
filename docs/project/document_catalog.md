@@ -73,7 +73,7 @@ A planned document appearing in this catalog establishes its intended place in t
 | P1 | Project Index | `docs/project/index.md` | Primary repository entry point and definition of the project's knowledge-first documentation structure. | Accepted Draft | Normative | — |
 | P2 | Document Catalog | `docs/project/document_catalog.md` | Catalog of current and planned canonical project knowledge artifacts and their direct dependencies. | Accepted Draft | Normative | P1 |
 | — | Project Governance | `docs/project/governance.md` | Define project roles, decision authority, review responsibilities, and governance principles. | Planned | TBD | TBD |
-| V1 | Project Vision | `docs/vision/project_vision.md` | Define why 23-chain exists, its intended direction, scope, and primary objectives. | Planned | TBD | TBD |
+| V1 | Project Vision | `docs/vision/project_vision.md` | Define why 23-chain exists, its intended direction, scope, and primary objectives. | Accepted Draft | Normative | P1 |
 | — | Design Principles | `docs/vision/design_principles.md` | Define principles governing research, architecture, implementation, and project evolution. | Planned | TBD | TBD |
 | — | Proof Levels | `docs/vision/proof_levels.md` | Define the project's conceptual framework for recording, replay, verification, enforcement, and associated trust assumptions. | Planned | TBD | TBD |
 | — | Prototype Baseline | `docs/vision/prototype_baseline.md` | Describe the historical prototype, what it demonstrated, its limitations, and which assumptions must not define the new architecture. | Planned | TBD | TBD |
