@@ -77,7 +77,7 @@ A planned document appearing in this catalog establishes its intended place in t
 | — | Design Principles | `docs/vision/design_principles.md` | Define principles governing research, architecture, implementation, and project evolution. | Planned | TBD | TBD |
 | — | Proof Levels | `docs/vision/proof_levels.md` | Define the project's conceptual framework for recording, replay, verification, enforcement, and associated trust assumptions. | Accepted Draft | Normative | P1, V1 |
 | — | Prototype Baseline | `docs/vision/prototype_baseline.md` | Describe the historical prototype, what it demonstrated, its limitations, and which assumptions must not define the new architecture. | Planned | TBD | TBD |
-| — | Computation Models | `docs/vision/computation_models.md` | Define the role of computation models within 23-chain and the use of Wolfram (2,3) as the initial reference model. | Planned | TBD | TBD |
+| — | Computation Models | `docs/vision/computation_models.md` | Define the role of computation models within 23-chain and the use of Wolfram (2,3) as the initial reference model. | Accepted Draft | Normative | P1, V1, Proof Levels |
 | — | Research Questions | `docs/vision/research_questions.md` | Define the research questions that guide investigation and evidence collection. | Planned | TBD | TBD |
 | — | Glossary | `docs/research/glossary.md` | Establish precise terminology used across computation, state, proof, protocol, and trust research. | Planned | TBD | TBD |
 | — | Computation on Bitcoin | `docs/research/computation_on_bitcoin.md` | Investigate computation claims and computational expressiveness in Bitcoin-style transaction and Script systems. | Planned | TBD | TBD |
