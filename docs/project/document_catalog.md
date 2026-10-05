@@ -75,7 +75,7 @@ A planned document appearing in this catalog establishes its intended place in t
 | — | Project Governance | `docs/project/governance.md` | Define project roles, decision authority, review responsibilities, and governance principles. | Planned | TBD | TBD |
 | V1 | Project Vision | `docs/vision/project_vision.md` | Define why 23-chain exists, its intended direction, scope, and primary objectives. | Accepted Draft | Normative | P1 |
 | — | Design Principles | `docs/vision/design_principles.md` | Define principles governing research, architecture, implementation, and project evolution. | Planned | TBD | TBD |
-| — | Proof Levels | `docs/vision/proof_levels.md` | Define the project's conceptual framework for recording, replay, verification, enforcement, and associated trust assumptions. | Planned | TBD | TBD |
+| — | Proof Levels | `docs/vision/proof_levels.md` | Define the project's conceptual framework for recording, replay, verification, enforcement, and associated trust assumptions. | Accepted Draft | Normative | P1, V1 |
 | — | Prototype Baseline | `docs/vision/prototype_baseline.md` | Describe the historical prototype, what it demonstrated, its limitations, and which assumptions must not define the new architecture. | Planned | TBD | TBD |
 | — | Computation Models | `docs/vision/computation_models.md` | Define the role of computation models within 23-chain and the use of Wolfram (2,3) as the initial reference model. | Planned | TBD | TBD |
 | — | Research Questions | `docs/vision/research_questions.md` | Define the research questions that guide investigation and evidence collection. | Planned | TBD | TBD |
