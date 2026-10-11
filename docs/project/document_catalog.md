@@ -83,7 +83,7 @@ A planned document appearing in this catalog establishes its intended place in t
 | — | Glossary | `docs/research/glossary.md` | Establish precise terminology used across computation, state, proof, protocol, and trust research. | Planned | TBD | TBD |
 | — | Computation on Bitcoin | `docs/research/computation_on_bitcoin.md` | Investigate computation claims and computational expressiveness in Bitcoin-style transaction and Script systems. | Planned | TBD | TBD |
 | — | Proof Taxonomy | `docs/research/proof_taxonomy.md` | Develop the formal distinctions between recording, replay, verification, enforcement, proof models, and trust models. | Planned | TBD | TBD |
-| — | State Models | `docs/research/state_models.md` | Investigate representation, serialization, commitments, determinism, and other state-model concerns. | Planned | TBD | TBD |
+| — | State Models | `docs/research/state_models.md` | Investigate representation, serialization, commitments, determinism, and other state-model concerns. | Accepted Draft | Normative | P1, V1, Computation Models, Research Questions |
 | — | Protocol Evolution | `docs/research/protocol_evolution.md` | Investigate how relevant Bitcoin/BSV protocol capabilities and historical changes affect computation and proof constructions. | Planned | TBD | TBD |
 | — | Requirements | `docs/requirements.md` | Define system requirements derived from accepted vision and research. | Planned | TBD | TBD |
 | — | Architecture | `docs/architecture.md` | Define how accepted requirements are realized by the system architecture. | Planned | TBD | TBD |
